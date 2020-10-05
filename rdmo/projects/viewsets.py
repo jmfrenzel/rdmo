@@ -15,11 +15,14 @@ from rest_framework_extensions.mixins import NestedViewSetMixin
 from rdmo.accounts.utils import is_site_manager
 from rdmo.conditions.models import Condition
 from rdmo.core.permissions import HasModelPermission, HasObjectPermission
-from rdmo.questions.models import Catalog, QuestionSet
+from rdmo.options.models import OptionSet
+from rdmo.questions.models import Catalog, Question, QuestionSet
 
-from .filters import SnapshotFilterBackend,ValueFilterBackend
-from .models import Issue, Membership, Project, Snapshot, Value
-from .serializers.v1 import (IssueSerializer, MembershipSerializer,
+from .filters import SnapshotFilterBackend, ValueFilterBackend
+from .models import Integration, Issue, Membership, Project, Snapshot, Value
+from .serializers.v1 import (IntegrationSerializer, IssueSerializer,
+                             MembershipSerializer,
+                             ProjectIntegrationSerializer,
                              ProjectIssueSerializer,
                              ProjectMembershipSerializer, ProjectSerializer,
                              ProjectSnapshotSerializer, ProjectValueSerializer,
@@ -54,6 +57,20 @@ class MembershipViewSetMixin(object):
                 return Membership.objects.filter(project__user=self.request.user)
         else:
             return Membership.objects.none()
+
+
+class IntegrationViewSetMixin(object):
+
+    def get_integrations_for_user(self, user):
+        if user.is_authenticated:
+            if user.has_perm('projects.view_integration'):
+                return Integration.objects.all()
+            elif is_site_manager(user):
+                return Integration.objects.filter_current_site()
+            else:
+                return Integration.objects.filter(project__user=self.request.user)
+        else:
+            return Integration.objects.none()
 
 
 class IssueViewSetMixin(object):
@@ -123,6 +140,25 @@ class ProjectViewSet(ProjectViewSetMixin, ModelViewSet):
         except Condition.DoesNotExist:
             return Response({'result': False})
 
+    @action(detail=True, permission_classes=(HasModelPermission | HasObjectPermission, ))
+    def options(self, request, pk=None):
+        project = self.get_object()
+
+        try:
+            optionset = OptionSet.objects.get(pk=request.GET.get('optionset'))
+
+            # check if the optionset belongs to this catalog and if it has a provider
+            if Question.objects.filter_by_catalog(project.catalog).filter(optionsets=optionset) and \
+                    optionset.provider is not None:
+                options = optionset.provider.get_options(project)
+                return Response(options)
+
+        except OptionSet.DoesNotExist:
+            pass
+
+        # if it didn't work return 404
+        raise NotFound()
+
     @action(detail=True, permission_classes=(IsAuthenticated, ))
     def catalog(self, request, pk=None):
         project = self.get_object()
@@ -176,6 +212,23 @@ class ProjectMembershipViewSet(ProjectNestedViewSetMixin, ModelViewSet):
         except AttributeError:
             # this is needed for the swagger ui
             return Membership.objects.none()
+
+
+class ProjectIntegrationViewSet(ProjectNestedViewSetMixin, ModelViewSet):
+    permission_classes = (HasModelPermission | HasObjectPermission, )
+    serializer_class = ProjectIntegrationSerializer
+
+    filter_backends = (DjangoFilterBackend, )
+    filterset_fields = (
+        'provider_key',
+    )
+
+    def get_queryset(self):
+        try:
+            return Integration.objects.filter(project=self.project)
+        except AttributeError:
+            # this is needed for the swagger ui
+            return Integration.objects.none()
 
 
 class ProjectIssueViewSet(ProjectNestedViewSetMixin, ListModelMixin, RetrieveModelMixin,
@@ -259,6 +312,23 @@ class MembershipViewSet(MembershipViewSetMixin, ReadOnlyModelViewSet):
 
     def get_queryset(self):
         return self.get_memberships_for_user(self.request.user)
+
+    def get_detail_permission_object(self, obj):
+        return obj.project
+
+
+class IntegrationViewSet(IntegrationViewSetMixin, ReadOnlyModelViewSet):
+    permission_classes = (HasModelPermission | HasObjectPermission, )
+    serializer_class = IntegrationSerializer
+
+    filter_backends = (DjangoFilterBackend, )
+    filterset_fields = (
+        'project',
+        'provider_key'
+    )
+
+    def get_queryset(self):
+        return self.get_integrations_for_user(self.request.user)
 
     def get_detail_permission_object(self, obj):
         return obj.project
