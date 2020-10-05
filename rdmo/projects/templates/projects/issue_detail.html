@@ -12,6 +12,8 @@
     {{ issue.task.text }}
 </p>
 
+{% if issue.dates %}
+
 <h3>{% trans 'Dates' %}</h3>
 
 {% for dates in issue.dates %}
@@ -21,6 +23,8 @@
     <p>{{ dates.0 | date:"DATE_FORMAT" }}</p>
     {% endif %}
 {% endfor %}
+
+{% endif %}
 
 <h3>{% trans 'Questions' %}</h3>
 
@@ -42,7 +46,7 @@
 {% endfor %}
 </ul>
 
-{% if issue.resources %}
+{% if issue.resources.all %}
 
 <h3>{% trans 'External resources for this task' %}</h3>
 
@@ -60,6 +64,12 @@
 
 {% block sidebar %}
 
+    <h2>{% trans 'Status' %}</h2>
+
+    <p>
+        {{ issue.get_status_display }}
+    </p>
+
     <h2>{% trans 'Options' %}</h2>
 
     <ul class="list-unstyled">
@@ -68,11 +78,13 @@
                 {% trans 'Update task status' %}
             </a>
         </li>
+        {% if settings.PROJECT_SEND_ISSUE %}
         <li>
             <a href="{% url 'issue_send' project.pk issue.pk %}?next={{ request.path }}">
                 {% trans 'Send task' %}
             </a>
         </li>
+        {% endif %}
     </ul>
 
 {% endblock %}
